@@ -1,0 +1,26 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ohmeomuk-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to food.porogramr.com
+    runs-on: [self-hosted, Linux, X64, ohmeomuk-deploy]
+    timeout-minutes: 20
+    steps:
+      - name: Check out deployment revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build, deploy, and verify
+        run: bash scripts/deploy-prod.sh
