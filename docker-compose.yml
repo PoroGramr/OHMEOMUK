@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: ohmeomuk-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      PORT: 8080
+    networks:
+      - ohmeomuk
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: ohmeomuk-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      BACKEND_URL: http://ohmeomuk-backend:8080
+      PORT: 3000
+    networks:
+      - ohmeomuk
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.ohmeomuk.rule=Host(`food.porogramr.com`)"
+      - "traefik.http.routers.ohmeomuk.entrypoints=websecure"
+      - "traefik.http.routers.ohmeomuk.tls=true"
+      - "traefik.http.routers.ohmeomuk.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.ohmeomuk.service=ohmeomuk"
+      - "traefik.http.services.ohmeomuk.loadbalancer.server.port=3000"
+      - "traefik.http.routers.ohmeomuk-http.rule=Host(`food.porogramr.com`)"
+      - "traefik.http.routers.ohmeomuk-http.entrypoints=web"
+      - "traefik.http.routers.ohmeomuk-http.middlewares=ohmeomuk-https-redirect"
+      - "traefik.http.middlewares.ohmeomuk-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.ohmeomuk-https-redirect.redirectscheme.permanent=true"
+
+networks:
+  ohmeomuk:
+    driver: bridge
+  web:
+    external: true
