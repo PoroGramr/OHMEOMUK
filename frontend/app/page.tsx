@@ -14,27 +14,17 @@ import {
   Utensils,
   Sparkles,
   LoaderCircle,
+  Share2,
 } from "lucide-react";
 
-type Mode = "survey" | "random";
+import type { Mode, Reply } from "../lib/recommendations";
+import {
+  createRecommendationShareUrl,
+  readSharedRecommendation,
+  SHARE_HASH_KEY,
+} from "../lib/share-recommendation";
+
 type Location = { latitude: number; longitude: number; name: string };
-type Place = {
-  id: string;
-  name: string;
-  category: string;
-  foodType: string;
-  distanceMeters: number;
-  reason: string;
-  address: string;
-  phone: string;
-  placeUrl: string;
-};
-type Reply = {
-  restaurants: Place[];
-  candidateCount: number;
-  exhausted: boolean;
-  notices: string[];
-};
 const categories = [
   ["KOREAN", "한식", "🍚"],
   ["CHINESE", "중식", "🥟"],
@@ -99,8 +89,110 @@ export default function Home() {
   const [reply, setReply] = useState<Reply | null>(null);
   const [seen, setSeen] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [shared, setShared] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareMessage, setShareMessage] = useState("");
+  const [manualShareUrl, setManualShareUrl] = useState("");
+  const shareInFlight = useRef(false);
   const pending = useRef<Mode | null>(null);
   const inFlight = useRef(false);
+  useEffect(() => {
+    function openSharedRecommendation() {
+      try {
+        const snapshot = readSharedRecommendation(window.location.hash);
+        if (!snapshot) return;
+        setMode(snapshot.mode);
+        setRadius(snapshot.radius);
+        setReply({
+          restaurants: snapshot.restaurants,
+          candidateCount: snapshot.restaurants.length,
+          exhausted: false,
+          notices: snapshot.notices,
+        });
+        setShared(true);
+        setSelected(null);
+        setShareMessage("");
+        setManualShareUrl("");
+        setError("");
+        setView("results");
+      } catch (e) {
+        setView("home");
+        setShared(false);
+        setReply(null);
+        setError(e instanceof Error ? e.message : "공유 링크를 열지 못했어요.");
+      }
+    }
+    openSharedRecommendation();
+    window.addEventListener("hashchange", openSharedRecommendation);
+    return () =>
+      window.removeEventListener("hashchange", openSharedRecommendation);
+  }, []);
+
+  function clearSharedRecommendation() {
+    if (window.location.hash.startsWith(`#${SHARE_HASH_KEY}=`)) {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    }
+    setShared(false);
+    setShareMessage("");
+    setManualShareUrl("");
+  }
+
+  function goHome() {
+    clearSharedRecommendation();
+    setView("home");
+    setError("");
+  }
+
+  async function shareRecommendation() {
+    if (!reply?.restaurants.length || shareInFlight.current) return;
+    shareInFlight.current = true;
+    setSharing(true);
+    setShareMessage("");
+    setManualShareUrl("");
+    try {
+      const url = createRecommendationShareUrl(window.location.origin, {
+        mode,
+        radius,
+        restaurants: reply.restaurants,
+        notices: reply.notices,
+      });
+      const data = {
+        title: "오머먹 — 오늘의 점심 추천",
+        text: "오늘 점심 여기 어때요? 오머먹 추천을 함께 봐요.",
+        url,
+      };
+      if (
+        navigator.share &&
+        (!navigator.canShare || navigator.canShare(data))
+      ) {
+        try {
+          await navigator.share(data);
+          return;
+        } catch (e) {
+          if (e instanceof Error && e.name === "AbortError") return;
+        }
+      }
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error();
+        await navigator.clipboard.writeText(url);
+        setShareMessage(
+          "추천 링크를 복사했어요. 함께 먹을 사람에게 보내보세요!",
+        );
+      } catch {
+        setManualShareUrl(url);
+        setShareMessage("아래 링크를 선택해서 복사해 주세요.");
+      }
+    } catch {
+      setShareMessage("공유 링크를 만들지 못했어요. 다시 시도해 주세요.");
+    } finally {
+      setSharing(false);
+      shareInFlight.current = false;
+    }
+  }
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [view]);
@@ -170,6 +262,7 @@ export default function Home() {
         exclude: nextMode === "survey" ? exclude : [],
         excludedPlaceIds: omitted,
       });
+      clearSharedRecommendation();
       setReply(data);
       setSeen([...omitted, ...data.restaurants.map((x) => x.id)].slice(-150));
       setView("results");
@@ -256,6 +349,7 @@ export default function Home() {
     }
   }
   function chooseLocation(loc: Location) {
+    clearSharedRecommendation();
     setLocation(loc);
     setLocationOpen(false);
     setSeen([]);
@@ -275,8 +369,7 @@ export default function Home() {
           className="brand"
           onClick={() => {
             if (!waiting) {
-              setView("home");
-              setError("");
+              goHome();
             }
           }}
           aria-label="오머먹 홈"
@@ -442,11 +535,7 @@ export default function Home() {
         )}
         {view === "survey" && (
           <section className="flow-section">
-            <button
-              className="back"
-              onClick={() => setView("home")}
-              disabled={waiting}
-            >
+            <button className="back" onClick={goHome} disabled={waiting}>
               <ChevronLeft size={17} />
               처음으로
             </button>
@@ -567,14 +656,7 @@ export default function Home() {
         )}
         {view === "results" && reply && (
           <section className="flow-section results-section">
-            <button
-              className="back"
-              disabled={waiting}
-              onClick={() => {
-                setView("home");
-                setError("");
-              }}
-            >
+            <button className="back" disabled={waiting} onClick={goHome}>
               <ChevronLeft size={17} />
               처음으로
             </button>
@@ -583,19 +665,59 @@ export default function Home() {
                 ? "LEAVE LUNCH TO A LITTLE LUCK"
                 : "YOUR LUNCH SHORTLIST"}
             </div>
-            <h1 className="flow-title">
-              {reply.restaurants.length
-                ? mode === "random"
-                  ? "오늘은 여기 어때요?"
-                  : "오늘의 점심 후보예요"
-                : reply.exhausted
-                  ? "한 바퀴 다 둘러봤어요"
-                  : "조금만 다르게 찾아볼까요?"}
-            </h1>
+            <div className="result-heading">
+              <h1 className="flow-title">
+                {reply.restaurants.length
+                  ? shared
+                    ? "함께 보는 점심 추천"
+                    : mode === "random"
+                      ? "오늘은 여기 어때요?"
+                      : "오늘의 점심 후보예요"
+                  : reply.exhausted
+                    ? "한 바퀴 다 둘러봤어요"
+                    : "조금만 다르게 찾아볼까요?"}
+              </h1>
+              {reply.restaurants.length > 0 && (
+                <button
+                  className="secondary share-button"
+                  disabled={waiting || sharing}
+                  onClick={shareRecommendation}
+                >
+                  {sharing ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Share2 size={16} />
+                  )}
+                  공유하기
+                </button>
+              )}
+            </div>
             <p className="subtitle">
-              {location?.name} · 반경 {radius === 1000 ? "1km" : radius + "m"}
+              {shared ? "공유된 추천" : location?.name} · 반경{" "}
+              {radius === 1000 ? "1km" : radius + "m"}
               {mode === "random" ? " · 무작위 추천" : " · 설문 맞춤 추천"}
             </p>
+            {shared && (
+              <p className="shared-note">
+                공유한 사람이 받은 추천이에요. 거리는 추천 당시 위치 기준이에요.
+              </p>
+            )}
+            {shareMessage && (
+              <p className="share-message" role="status">
+                {shareMessage}
+              </p>
+            )}
+            {manualShareUrl && (
+              <div className="manual-share">
+                <label htmlFor="recommendation-share-url">추천 공유 링크</label>
+                <input
+                  id="recommendation-share-url"
+                  readOnly
+                  value={manualShareUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </div>
+            )}
             {!reply.restaurants.length ? (
               <div className="empty-state">
                 <Search size={34} />
@@ -641,7 +763,9 @@ export default function Home() {
                     </div>
                     <h2>{p.name}</h2>
                     <span className="distance">
-                      <MapPin size={14} /> 직선거리 약 {p.distanceMeters}m
+                      <MapPin size={14} />{" "}
+                      {shared ? "추천 당시 직선거리" : "직선거리"} 약{" "}
+                      {p.distanceMeters}m
                     </span>
                     <div className="reason">
                       <Sparkles size={15} />
@@ -681,48 +805,58 @@ export default function Home() {
               </p>
             )}
             <div className="result-actions">
-              <button
-                className="secondary"
-                disabled={waiting}
-                onClick={() =>
-                  location && recommend(mode, location, reply.exhausted)
-                }
-              >
-                {waiting ? (
-                  <LoaderCircle className="spin" size={17} />
-                ) : (
-                  <Shuffle size={17} />
-                )}{" "}
-                {reply.exhausted
-                  ? "처음부터 다시 뽑기"
-                  : mode === "random"
-                    ? "다시 뽑기"
-                    : "다른 곳 추천"}
-              </button>
-              {mode === "survey" ? (
-                <button
-                  className="secondary"
-                  disabled={waiting}
-                  onClick={() => {
-                    setView("survey");
-                    setError("");
-                  }}
-                >
-                  조건 변경 <SlidersHorizontal size={16} />
+              {shared ? (
+                <button className="secondary" onClick={goHome}>
+                  내 주변에서 새로 추천받기 <ArrowRight size={16} />
                 </button>
               ) : (
-                <button
-                  className="secondary"
-                  disabled={waiting}
-                  onClick={() => {
-                    const r = radius < 1000 ? 1000 : radius < 3000 ? 3000 : 500;
-                    setRadius(r);
-                    if (location) void recommend(mode, location, true, r);
-                  }}
-                >
-                  반경 {radius < 1000 ? "1km" : radius < 3000 ? "3km" : "500m"}
-                  로 변경
-                </button>
+                <>
+                  <button
+                    className="secondary"
+                    disabled={waiting}
+                    onClick={() =>
+                      location && recommend(mode, location, reply.exhausted)
+                    }
+                  >
+                    {waiting ? (
+                      <LoaderCircle className="spin" size={17} />
+                    ) : (
+                      <Shuffle size={17} />
+                    )}{" "}
+                    {reply.exhausted
+                      ? "처음부터 다시 뽑기"
+                      : mode === "random"
+                        ? "다시 뽑기"
+                        : "다른 곳 추천"}
+                  </button>
+                  {mode === "survey" ? (
+                    <button
+                      className="secondary"
+                      disabled={waiting}
+                      onClick={() => {
+                        setView("survey");
+                        setError("");
+                      }}
+                    >
+                      조건 변경 <SlidersHorizontal size={16} />
+                    </button>
+                  ) : (
+                    <button
+                      className="secondary"
+                      disabled={waiting}
+                      onClick={() => {
+                        const r =
+                          radius < 1000 ? 1000 : radius < 3000 ? 3000 : 500;
+                        setRadius(r);
+                        if (location) void recommend(mode, location, true, r);
+                      }}
+                    >
+                      반경{" "}
+                      {radius < 1000 ? "1km" : radius < 3000 ? "3km" : "500m"}로
+                      변경
+                    </button>
+                  )}
+                </>
               )}
             </div>
             <div className="notices">

@@ -673,6 +673,50 @@ legend small {
   gap: 10px;
   margin: 28px 0;
 }
+.result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.result-heading .flow-title {
+  margin-right: auto;
+}
+.share-button {
+  flex-shrink: 0;
+  color: var(--green);
+}
+.shared-note,
+.share-message {
+  font-size: 12px;
+  line-height: 1.8;
+  margin: -16px 0 24px;
+  color: #738567;
+}
+.share-message {
+  padding: 12px 16px;
+  margin: 0 0 20px;
+  background: #eaf1e4;
+  border-radius: 10px;
+}
+.manual-share {
+  margin: 0 0 24px;
+}
+.manual-share label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.manual-share input {
+  width: 100%;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  font-size: 12px;
+}
 .notices {
   text-align: center;
   font-size: 10px;
